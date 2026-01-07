@@ -78,23 +78,31 @@ class BrowserAutomation:
         if not self.page:
             return
             
-        try:
-            # Use 'domcontentloaded' for faster initial load
-            self.page.goto(self.url, wait_until='domcontentloaded', timeout=60000)
-            
-            # Wait for the tab to be available and click it
-            self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
-            self.page.click('a[href="#tab-02"]')
-            
-            # Wait for form fields to be ready
-            self.page.wait_for_selector('input#nombre', timeout=10000)
-            
-            self._form_ready = True
-            
-        except Exception as e:
-            print(f"Error navigating to {self.url}: {e}")
-            self._form_ready = False
-            raise
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Use 'domcontentloaded' for faster initial load
+                self.page.goto(self.url, wait_until='domcontentloaded', timeout=60000)
+                
+                # Wait for the tab to be available and click it
+                self.page.wait_for_selector('a[href="#tab-02"]', timeout=15000)
+                self.page.click('a[href="#tab-02"]')
+                
+                # Wait for form fields to be ready
+                self.page.wait_for_selector('input#nombre', timeout=10000)
+                
+                self._form_ready = True
+                return
+                
+            except Exception as e:
+                print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {e}")
+                self._form_ready = False
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # 2, 4 seconds
+                    print(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    raise
     
     def close_browser(self):
         """Close browser and cleanup."""
@@ -204,103 +212,110 @@ class BrowserAutomation:
         if not self.page:
             raise RuntimeError("Browser not started. Call start_browser() first.")
         
-        try:
-            # Ensure form is ready (no page reload if already ready)
-            self._ensure_form_ready()
-            
-            # Close any open modal from previous search
-            self._close_modal_if_present()
-            
-            # Clear form efficiently
-            self._clear_form()
-            
-            # Small delay to ensure form is cleared
-            time.sleep(0.1)
-            
-            # Fill form fields using JavaScript for maximum speed
-            day_str = str(day).zfill(2)
-            month_str = str(month).zfill(2)
-            year_str = str(year)
-            gender_value = "H" if gender.upper() == "H" else "M"
-            state_code = get_state_code(state)
-            
-            # Use JavaScript to fill all fields at once - MUCH faster
-            self.page.evaluate(f"""
-                () => {{
-                    document.getElementById('nombre').value = '{first_name}';
-                    document.getElementById('primerApellido').value = '{last_name_1}';
-                    document.getElementById('segundoApellido').value = '{last_name_2}';
-                    document.getElementById('selectedYear').value = '{year_str}';
-                    
-                    // Set select values
-                    document.getElementById('diaNacimiento').value = '{day_str}';
-                    document.getElementById('mesNacimiento').value = '{month_str}';
-                    document.getElementById('sexo').value = '{gender_value}';
-                    document.getElementById('claveEntidad').value = '{state_code}';
-                    
-                    // Trigger change events for selects
-                    ['diaNacimiento', 'mesNacimiento', 'sexo', 'claveEntidad'].forEach(id => {{
-                        const el = document.getElementById(id);
-                        if (el) el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    }});
-                }}
-            """)
-            
-            # Small delay before submit
-            time.sleep(0.1)
-            
-            # Submit form using JavaScript
+        max_retries = 2
+        for attempt in range(max_retries):
             try:
-                self.page.evaluate("""
-                    () => {
-                        const submitBtn = document.querySelector('button[type="submit"]') || 
-                                         document.querySelector('input[type="submit"]') ||
-                                         document.querySelector('button.btn-primary');
-                        if (submitBtn) submitBtn.click();
-                    }
+                # Ensure form is ready (no page reload if already ready)
+                self._ensure_form_ready()
+                
+                # Close any open modal from previous search
+                self._close_modal_if_present()
+                
+                # Clear form efficiently
+                self._clear_form()
+                
+                # Small delay to ensure form is cleared
+                time.sleep(0.1)
+                
+                # Fill form fields using JavaScript for maximum speed
+                day_str = str(day).zfill(2)
+                month_str = str(month).zfill(2)
+                year_str = str(year)
+                gender_value = "H" if gender.upper() == "H" else "M"
+                state_code = get_state_code(state)
+                
+                # Use JavaScript to fill all fields at once - MUCH faster
+                self.page.evaluate(f"""
+                    () => {{
+                        document.getElementById('nombre').value = '{first_name}';
+                        document.getElementById('primerApellido').value = '{last_name_1}';
+                        document.getElementById('segundoApellido').value = '{last_name_2}';
+                        document.getElementById('selectedYear').value = '{year_str}';
+                        
+                        // Set select values
+                        document.getElementById('diaNacimiento').value = '{day_str}';
+                        document.getElementById('mesNacimiento').value = '{month_str}';
+                        document.getElementById('sexo').value = '{gender_value}';
+                        document.getElementById('claveEntidad').value = '{state_code}';
+                        
+                        // Trigger change events for selects
+                        ['diaNacimiento', 'mesNacimiento', 'sexo', 'claveEntidad'].forEach(id => {{
+                            const el = document.getElementById(id);
+                            if (el) el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        }});
+                    }}
                 """)
-            except:
-                # Fallback
-                self.page.keyboard.press('Enter')
-            
-            # OPTIMIZED: Wait for response with smart timeout
-            try:
-                # Wait for either error modal OR results table - whichever comes first
-                self.page.wait_for_selector(
-                    'button[data-dismiss="modal"], #dwnldLnk, table.table',
-                    timeout=8000
-                )
-            except:
-                # If timeout, still try to get content
-                pass
-            
-            # Small delay for content to render
-            time.sleep(0.15)
-            
-            # Close modal if present (no match)
-            self._close_modal_if_present()
-            
-            # Get page content
-            content = self.page.content()
-            
-            # Increment search count
-            self.search_count += 1
-            
-            # Apply delay after search (respects rate limiting)
-            self._random_delay()
-            
-            # Periodic pause to avoid detection - OPTIMIZED frequency
-            if self.search_count % self.pause_every_n == 0:
-                print(f"Pausing for {self.pause_duration} seconds after {self.search_count} searches...")
-                time.sleep(self.pause_duration)
-            
-            return content
-            
-        except Exception as e:
-            print(f"Error during search: {e}")
-            # Mark form as not ready so next call will reload
-            self._form_ready = False
-            return ""
+                
+                # Small delay before submit
+                time.sleep(0.1)
+                
+                # Submit form using JavaScript
+                try:
+                    self.page.evaluate("""
+                        () => {
+                            const submitBtn = document.querySelector('button[type="submit"]') || 
+                                             document.querySelector('input[type="submit"]') ||
+                                             document.querySelector('button.btn-primary');
+                            if (submitBtn) submitBtn.click();
+                        }
+                    """)
+                except:
+                    # Fallback
+                    self.page.keyboard.press('Enter')
+                
+                # OPTIMIZED: Wait for response with smart timeout
+                try:
+                    # Wait for either error modal OR results table - whichever comes first
+                    self.page.wait_for_selector(
+                        'button[data-dismiss="modal"], #dwnldLnk, table.table',
+                        timeout=8000
+                    )
+                except:
+                    # If timeout, still try to get content
+                    pass
+                
+                # Small delay for content to render
+                time.sleep(0.15)
+                
+                # Close modal if present (no match)
+                self._close_modal_if_present()
+                
+                # Get page content
+                content = self.page.content()
+                
+                # Increment search count
+                self.search_count += 1
+                
+                # Apply delay after search (respects rate limiting)
+                self._random_delay()
+                
+                # Periodic pause to avoid detection - OPTIMIZED frequency
+                if self.search_count % self.pause_every_n == 0:
+                    print(f"Pausing for {self.pause_duration} seconds after {self.search_count} searches...")
+                    time.sleep(self.pause_duration)
+                
+                return content
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"Error during search (attempt {attempt + 1}/{max_retries}): {e}")
+                    # Mark form as not ready to trigger reload on retry
+                    self._form_ready = False
+                    time.sleep(1)  # Brief pause before retry
+                else:
+                    print(f"Error during search (final attempt): {e}")
+                    self._form_ready = False
+                    return ""
     
     def __enter__(self):
         """Context manager entry."""

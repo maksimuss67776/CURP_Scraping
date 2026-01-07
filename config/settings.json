@@ -4,16 +4,17 @@
     "end": 1977
   },
   "delays": {
-    "min_seconds": 0.4,
-    "max_seconds": 0.8
+    "min_seconds": 1,
+    "max_seconds": 2
   },
-  "pause_every_n": 150,
-  "pause_duration": 8,
+  "pause_every_n": 75,
+  "pause_duration": 15,
   "browser": {
-    "headless": true
+    "headless": false
   },
   "num_workers": 8,
   "output_dir": "./data/results",
   "input_dir": "./data",
   "checkpoint_dir": "./checkpoints"
 }
+
