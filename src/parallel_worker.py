@@ -81,6 +81,12 @@ class ParallelWorker:
         browser_automation = None
         
         try:
+            # Add worker-specific delay to further stagger connections
+            initial_delay = (worker_id - 1) * 1.5  # 0s, 1.5s, 3s, 4.5s, etc.
+            if initial_delay > 0:
+                logger.info(f"Worker {worker_id}: Waiting {initial_delay:.1f}s before starting...")
+                time.sleep(initial_delay)
+            
             # Initialize browser for this worker with optimized settings
             browser_automation = BrowserAutomation(
                 headless=self.headless,
@@ -91,7 +97,7 @@ class ParallelWorker:
             )
             
             browser_automation.start_browser()
-            logger.info(f"Worker {worker_id}: Browser started")
+            logger.info(f"Worker {worker_id}: Browser started successfully")
             
             worker_search_count = 0
             consecutive_errors = 0
@@ -341,8 +347,9 @@ class ParallelWorker:
             )
             thread.start()
             threads.append(thread)
-            # OPTIMIZED: Minimal stagger to avoid simultaneous requests
-            time.sleep(0.05)
+            # CRITICAL: Stagger browser startups to avoid overwhelming server
+            # Each browser needs time to fully initialize before next starts
+            time.sleep(2.0)
         
         logger.info(f"Started {self.num_workers} worker threads")
         

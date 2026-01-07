@@ -43,6 +43,9 @@ class BrowserAutomation:
     
     def start_browser(self):
         """Start browser and navigate to CURP page."""
+        # Add small random delay to spread out worker initialization
+        time.sleep(random.uniform(0.5, 2.0))
+        
         self.playwright = sync_playwright().start()
         
         # Launch browser with optimized settings

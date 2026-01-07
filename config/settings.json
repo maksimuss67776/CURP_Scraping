@@ -12,7 +12,7 @@
   "browser": {
     "headless": false
   },
-  "num_workers": 8,
+  "num_workers": 6,
   "output_dir": "./data/results",
   "input_dir": "./data",
   "checkpoint_dir": "./checkpoints"
