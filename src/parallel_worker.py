@@ -63,11 +63,11 @@ class ParallelWorker:
         self.match_buffer = []  # Buffer for batch writes
         self.match_buffer_lock = threading.Lock()
         self.last_excel_write = time.time()
-        self.EXCEL_BATCH_SIZE = 50  # Write every 50 matches
-        self.EXCEL_BATCH_TIMEOUT = 120  # Or every 2 minutes
+        self.EXCEL_BATCH_SIZE = 100  # Write every 100 matches (increased)
+        self.EXCEL_BATCH_TIMEOUT = 180  # Or every 3 minutes (increased)
         
         # OPTIMIZATION: Smarter checkpoint interval
-        self.CHECKPOINT_INTERVAL = 1000  # Increased from 500
+        self.CHECKPOINT_INTERVAL = 2000  # Further increased from 1000
         
     def worker_thread(self, worker_id: int, combinations_queue: Queue,
                     first_name: str, last_name_1: str, last_name_2: str,
@@ -179,8 +179,8 @@ class ParallelWorker:
                             logger.info(f"Checkpoint saved. Progress: {current_count}/{total_combinations} "
                                       f"({current_count/total_combinations*100:.2f}%)")
                         
-                        # Log progress periodically (every 500 instead of 1000)
-                        if current_count % 500 == 0:
+                        # Log progress periodically (every 1000 for performance)
+                        if current_count % 1000 == 0:
                             elapsed_rate = worker_search_count / max(1, time.time() - getattr(self, '_start_time', time.time()))
                             logger.info(f"Progress: {current_count}/{total_combinations} "
                                       f"({current_count/total_combinations*100:.2f}%) - "
@@ -341,8 +341,8 @@ class ParallelWorker:
             )
             thread.start()
             threads.append(thread)
-            # OPTIMIZED: Reduced stagger time
-            time.sleep(0.2)
+            # OPTIMIZED: Minimal stagger to avoid simultaneous requests
+            time.sleep(0.05)
         
         logger.info(f"Started {self.num_workers} worker threads")
         

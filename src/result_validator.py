@@ -10,6 +10,11 @@ from datetime import datetime
 # CURP format: 18 characters (letters and numbers)
 CURP_REGEX = re.compile(r'^[A-Z]{4}\d{6}[HM][A-Z]{5}[0-9A-Z]\d$')
 
+# Pre-compile HTML parsing patterns for performance
+CURP_PATTERN = re.compile(r'<td[^>]*>CURP:</td>\s*<td[^>]*style="text-transform:\s*uppercase;">([A-Z0-9]{18})</td>', re.IGNORECASE)
+DATE_PATTERN = re.compile(r'<td[^>]*>Fecha de nacimiento:[^<]*</td>\s*<td[^>]*style="text-transform:\s*uppercase;">(\d{2}/\d{2}/\d{4})</td>', re.IGNORECASE)
+STATE_PATTERN = re.compile(r'<td[^>]*>Entidad de nacimiento:</td>\s*<td[^>]*style="text-transform:\s*uppercase;">([^<]+)</td>', re.IGNORECASE)
+
 
 class ResultValidator:
     """Validate and extract CURP information."""
@@ -146,29 +151,20 @@ class ResultValidator:
         if not html_content:
             return result
         
-        html_lower = html_content.lower()
-        
-        # Check for error modal (no match found)
-        # The modal contains "Los datos ingresados no son correctos"
-        no_match_indicators = [
-            'los datos ingresados no son correctos',
-            'aviso importante',
-            'warningmenssage',
-            'estimado/a usuario/a'
-        ]
-        
-        if any(indicator in html_lower for indicator in no_match_indicators):
-            result['found'] = False
-            return result
+        # Quick check for error indicators without converting entire HTML to lowercase
+        # Check only if result table markers are absent
+        if 'CURP:' not in html_content and 'curp:' not in html_content:
+            html_lower = html_content.lower()
+            if 'los datos ingresados no son correctos' in html_lower or 'aviso importante' in html_lower:
+                result['found'] = False
+                return result
         
         # Check for results table (match found)
         # Look for the CURP in the results table structure
         # The CURP appears in a <td> after "CURP:" label
-        import re
         
-        # Pattern to find CURP in the table: <td>CURP:</td> followed by <td>ACTUAL_CURP</td>
-        curp_pattern = r'<td[^>]*>CURP:</td>\s*<td[^>]*style="text-transform:\s*uppercase;">([A-Z0-9]{18})</td>'
-        curp_match = re.search(curp_pattern, html_content, re.IGNORECASE)
+        # Use pre-compiled pattern for better performance
+        curp_match = CURP_PATTERN.search(html_content)
         
         if curp_match:
             curp = curp_match.group(1).strip().upper()
@@ -180,9 +176,8 @@ class ResultValidator:
                 result['state_code'] = ResultValidator.extract_state_code_from_curp(curp)
                 
                 # Also try to extract birth date from the table if available
-                # Pattern: <td>Fecha de nacimiento:</td> followed by <td>DD/MM/YYYY</td>
-                date_pattern = r'<td[^>]*>Fecha de nacimiento:[^<]*</td>\s*<td[^>]*style="text-transform:\s*uppercase;">(\d{2}/\d{2}/\d{4})</td>'
-                date_match = re.search(date_pattern, html_content, re.IGNORECASE)
+                # Use pre-compiled pattern
+                date_match = DATE_PATTERN.search(html_content)
                 if date_match:
                     date_str = date_match.group(1)
                     # Convert DD/MM/YYYY to YYYY-MM-DD
@@ -194,8 +189,8 @@ class ResultValidator:
                         pass
                 
                 # Extract state from table if available
-                state_pattern = r'<td[^>]*>Entidad de nacimiento:</td>\s*<td[^>]*style="text-transform:\s*uppercase;">([^<]+)</td>'
-                state_match = re.search(state_pattern, html_content, re.IGNORECASE)
+                # Use pre-compiled pattern
+                state_match = STATE_PATTERN.search(html_content)
                 if state_match:
                     state_name = state_match.group(1).strip()
                     # Store the state name found in results

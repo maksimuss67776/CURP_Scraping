@@ -141,21 +141,15 @@ class BrowserAutomation:
             # Clear all text inputs at once using JavaScript - much faster
             self.page.evaluate("""
                 () => {
-                    document.getElementById('nombre').value = '';
-                    document.getElementById('primerApellido').value = '';
-                    document.getElementById('segundoApellido').value = '';
-                    document.getElementById('selectedYear').value = '';
+                    const fields = ['nombre', 'primerApellido', 'segundoApellido', 'selectedYear'];
+                    fields.forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = '';
+                    });
                 }
             """)
-        except Exception as e:
-            # Fallback to individual clears
-            try:
-                self.page.fill('input#nombre', '', timeout=2000)
-                self.page.fill('input#primerApellido', '', timeout=2000)
-                self.page.fill('input#segundoApellido', '', timeout=2000)
-                self.page.fill('input#selectedYear', '', timeout=2000)
-            except:
-                pass
+        except:
+            pass
     
     def _close_modal_if_present(self):
         """Close the error modal if it appears (no match found) - OPTIMIZED."""
@@ -163,15 +157,13 @@ class BrowserAutomation:
             return
         
         try:
-            # Use JavaScript for faster modal closing
+            # Use JavaScript for faster modal closing - check and close in one operation
             self.page.evaluate("""
                 () => {
                     const closeBtn = document.querySelector('button[data-dismiss="modal"]');
-                    if (closeBtn && closeBtn.offsetParent !== null) {
-                        closeBtn.click();
-                    }
+                    if (closeBtn && closeBtn.offsetParent !== null) closeBtn.click();
                 }
-            """)
+            """, timeout=1000)
         except:
             pass
     
@@ -224,9 +216,6 @@ class BrowserAutomation:
                 # Clear form efficiently
                 self._clear_form()
                 
-                # Small delay to ensure form is cleared
-                time.sleep(0.1)
-                
                 # Fill form fields using JavaScript for maximum speed
                 day_str = str(day).zfill(2)
                 month_str = str(month).zfill(2)
@@ -256,9 +245,6 @@ class BrowserAutomation:
                     }}
                 """)
                 
-                # Small delay before submit
-                time.sleep(0.1)
-                
                 # Submit form using JavaScript
                 try:
                     self.page.evaluate("""
@@ -283,9 +269,6 @@ class BrowserAutomation:
                 except:
                     # If timeout, still try to get content
                     pass
-                
-                # Small delay for content to render
-                time.sleep(0.15)
                 
                 # Close modal if present (no match)
                 self._close_modal_if_present()
