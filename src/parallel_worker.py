@@ -1,6 +1,7 @@
 """
 Parallel Worker
 Manages multiple browser instances for parallel CURP searches.
+OPTIMIZED VERSION - Batched Excel writes, smarter checkpointing
 """
 import threading
 import time
@@ -20,22 +21,22 @@ logger = logging.getLogger(__name__)
 
 
 class ParallelWorker:
-    """Manages parallel browser instances for CURP searches."""
+    """Manages parallel browser instances for CURP searches - OPTIMIZED."""
     
-    def __init__(self, num_workers: int = 5, headless: bool = False,
-                 min_delay: float = 1.0, max_delay: float = 2.0,
-                 pause_every_n: int = 75, pause_duration: int = 15,
+    def __init__(self, num_workers: int = 8, headless: bool = False,
+                 min_delay: float = 0.5, max_delay: float = 1.0,
+                 pause_every_n: int = 150, pause_duration: int = 10,
                  output_dir: str = "./data/results"):
         """
-        Initialize parallel worker.
+        Initialize parallel worker - OPTIMIZED DEFAULTS.
         
         Args:
-            num_workers: Number of parallel browser instances
+            num_workers: Number of parallel browser instances (increased from 5)
             headless: Run browsers in headless mode
-            min_delay: Minimum delay between searches (seconds)
-            max_delay: Maximum delay between searches (seconds)
-            pause_every_n: Pause every N searches
-            pause_duration: Duration of pause (seconds)
+            min_delay: Minimum delay between searches (reduced from 1.0)
+            max_delay: Maximum delay between searches (reduced from 2.0)
+            pause_every_n: Pause every N searches (increased from 75)
+            pause_duration: Duration of pause (reduced from 15)
             output_dir: Directory for output Excel files
         """
         self.num_workers = num_workers
@@ -58,6 +59,16 @@ class ParallelWorker:
         # Track output file per person
         self.output_files = {}  # person_id -> filename
         
+        # OPTIMIZATION: Batch matches for Excel writing
+        self.match_buffer = []  # Buffer for batch writes
+        self.match_buffer_lock = threading.Lock()
+        self.last_excel_write = time.time()
+        self.EXCEL_BATCH_SIZE = 50  # Write every 50 matches
+        self.EXCEL_BATCH_TIMEOUT = 120  # Or every 2 minutes
+        
+        # OPTIMIZATION: Smarter checkpoint interval
+        self.CHECKPOINT_INTERVAL = 1000  # Increased from 500
+        
     def worker_thread(self, worker_id: int, combinations_queue: Queue,
                     first_name: str, last_name_1: str, last_name_2: str,
                     gender: str, person_id: int, person_name: str,
@@ -65,27 +76,12 @@ class ParallelWorker:
                     all_results: List[Dict], processed_count: Dict,
                     stop_event: threading.Event):
         """
-        Worker thread that processes combinations from the queue.
-        
-        Args:
-            worker_id: Unique ID for this worker
-            combinations_queue: Queue of combinations to process
-            first_name: First name
-            last_name_1: First last name
-            last_name_2: Second last name
-            gender: Gender
-            person_id: Person ID
-            person_name: Person name for logging
-            total_combinations: Total number of combinations
-            checkpoint_manager: Checkpoint manager instance
-            all_results: Shared list for results
-            processed_count: Shared dict for processed count
-            stop_event: Event to signal stop
+        Worker thread that processes combinations from the queue - OPTIMIZED.
         """
         browser_automation = None
         
         try:
-            # Initialize browser for this worker
+            # Initialize browser for this worker with optimized settings
             browser_automation = BrowserAutomation(
                 headless=self.headless,
                 min_delay=self.min_delay,
@@ -98,6 +94,8 @@ class ParallelWorker:
             logger.info(f"Worker {worker_id}: Browser started")
             
             worker_search_count = 0
+            consecutive_errors = 0
+            MAX_CONSECUTIVE_ERRORS = 5
             
             while not stop_event.is_set():
                 try:
@@ -125,6 +123,8 @@ class ParallelWorker:
                             year=year
                         )
                         
+                        consecutive_errors = 0  # Reset on success
+                        
                         # Validate result
                         validation_result = self.result_validator.validate_result(html_content, state)
                         
@@ -151,8 +151,8 @@ class ParallelWorker:
                             logger.info(f"Worker {worker_id}: MATCH FOUND! Person {person_id}: "
                                       f"CURP {validation_result['curp']} ({day:02d}/{month:02d}/{year}, {state})")
                             
-                            # Immediately save to Excel file
-                            self._save_match_immediately(person_id, match_data, all_results)
+                            # OPTIMIZATION: Add to batch buffer instead of immediate write
+                            self._add_to_match_buffer(person_id, match_data, all_results)
                         
                         worker_search_count += 1
                         
@@ -161,8 +161,8 @@ class ParallelWorker:
                             processed_count['count'] = processed_count.get('count', 0) + 1
                             current_count = processed_count['count']
                         
-                        # Save checkpoint periodically (every 100 combinations across all workers)
-                        if current_count % 100 == 0:
+                        # OPTIMIZATION: Save checkpoint less frequently
+                        if current_count % self.CHECKPOINT_INTERVAL == 0:
                             with self.checkpoint_lock:
                                 checkpoint_manager.save_checkpoint(
                                     person_id=person_id,
@@ -179,17 +179,28 @@ class ParallelWorker:
                             logger.info(f"Checkpoint saved. Progress: {current_count}/{total_combinations} "
                                       f"({current_count/total_combinations*100:.2f}%)")
                         
-                        # Log progress periodically
-                        if current_count % 1000 == 0:
+                        # Log progress periodically (every 500 instead of 1000)
+                        if current_count % 500 == 0:
+                            elapsed_rate = worker_search_count / max(1, time.time() - getattr(self, '_start_time', time.time()))
                             logger.info(f"Progress: {current_count}/{total_combinations} "
-                                      f"({current_count/total_combinations*100:.2f}%)")
+                                      f"({current_count/total_combinations*100:.2f}%) - "
+                                      f"Worker {worker_id}: {elapsed_rate:.1f} searches/sec")
                         
                         # Mark task as done
                         combinations_queue.task_done()
                         
                     except Exception as e:
+                        consecutive_errors += 1
                         logger.error(f"Worker {worker_id}: Error processing combination "
                                    f"(day={day}, month={month}, state={state}, year={year}): {e}")
+                        
+                        # If too many consecutive errors, take a break
+                        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                            logger.warning(f"Worker {worker_id}: {MAX_CONSECUTIVE_ERRORS} consecutive errors, "
+                                         f"pausing for 30 seconds...")
+                            time.sleep(30)
+                            consecutive_errors = 0
+                        
                         combinations_queue.task_done()
                         continue
                 
@@ -207,58 +218,85 @@ class ParallelWorker:
                 browser_automation.close_browser()
                 logger.info(f"Worker {worker_id}: Browser closed")
     
-    def _save_match_immediately(self, person_id: int, match_data: Dict, all_results: List[Dict]):
+    def _add_to_match_buffer(self, person_id: int, match_data: Dict, all_results: List[Dict]):
         """
-        Immediately save a match to Excel file (thread-safe).
-        
-        Args:
-            person_id: Person ID
-            match_data: Match data dictionary
-            all_results: All results list
+        Add match to buffer and flush if needed - OPTIMIZED batching.
         """
+        with self.match_buffer_lock:
+            self.match_buffer.append({
+                'person_id': person_id,
+                'match_data': match_data,
+                'all_results_snapshot': None  # Don't snapshot every time
+            })
+            
+            current_time = time.time()
+            should_flush = (
+                len(self.match_buffer) >= self.EXCEL_BATCH_SIZE or
+                (current_time - self.last_excel_write) >= self.EXCEL_BATCH_TIMEOUT
+            )
+            
+            if should_flush and self.match_buffer:
+                self._flush_match_buffer(all_results)
+    
+    def _flush_match_buffer(self, all_results: List[Dict]):
+        """
+        Flush match buffer to Excel - called with lock held.
+        """
+        if not self.match_buffer:
+            return
+            
         try:
             with self.excel_lock:
-                # Get or create output filename for this person
-                if person_id not in self.output_files:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"curp_results_person_{person_id}_{timestamp}.xlsx"
-                    self.output_files[person_id] = filename
+                # Group matches by person_id
+                by_person = {}
+                for item in self.match_buffer:
+                    pid = item['person_id']
+                    if pid not in by_person:
+                        by_person[pid] = []
+                    by_person[pid].append(item['match_data'])
                 
-                filename = self.output_files[person_id]
+                # Write each person's matches
+                for person_id, matches in by_person.items():
+                    # Get or create output filename for this person
+                    if person_id not in self.output_files:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"curp_results_person_{person_id}_{timestamp}.xlsx"
+                        self.output_files[person_id] = filename
+                    
+                    filename = self.output_files[person_id]
+                    
+                    # Get all matches for this person from main results
+                    with self.results_lock:
+                        person_matches = [r for r in all_results if r.get('person_id') == person_id]
+                    
+                    # Create summary for this person
+                    if matches:
+                        first_match = matches[0]
+                        summary = [{
+                            'person_id': person_id,
+                            'first_name': first_match['first_name'],
+                            'last_name_1': first_match['last_name_1'],
+                            'last_name_2': first_match['last_name_2'],
+                            'total_matches': len(person_matches)
+                        }]
+                    else:
+                        summary = []
+                    
+                    # Save to Excel
+                    self.excel_handler.write_results(person_matches, summary, filename)
+                    logger.info(f"Batch saved to {filename} (Person {person_id}, {len(person_matches)} total matches)")
                 
-                # Get all matches for this person
-                person_matches = [r for r in all_results if r.get('person_id') == person_id]
-                
-                # Create summary for this person
-                summary = [{
-                    'person_id': person_id,
-                    'first_name': match_data['first_name'],
-                    'last_name_1': match_data['last_name_1'],
-                    'last_name_2': match_data['last_name_2'],
-                    'total_matches': len(person_matches)
-                }]
-                
-                # Save to Excel (this will create or append)
-                self.excel_handler.write_results(person_matches, summary, filename)
-                
-                logger.info(f"Match saved immediately to {filename} (Person {person_id}, Match #{len(person_matches)})")
+                self.match_buffer.clear()
+                self.last_excel_write = time.time()
         
         except Exception as e:
-            logger.error(f"Error saving match immediately: {e}")
+            logger.error(f"Error flushing match buffer: {e}")
     
     def process_person_parallel(self, person_data: Dict, combinations: Iterator[Tuple[int, int, str, int]],
                               total_combinations: int, checkpoint_manager: CheckpointManager,
                               all_results: List[Dict], start_index: int = 0):
         """
-        Process a person's combinations using parallel workers.
-        
-        Args:
-            person_data: Dictionary with person information
-            combinations: Iterator of (day, month, state, year) tuples
-            total_combinations: Total number of combinations
-            checkpoint_manager: Checkpoint manager
-            all_results: List to store results
-            start_index: Starting combination index (for resume)
+        Process a person's combinations using parallel workers - OPTIMIZED.
         """
         first_name = person_data['first_name']
         last_name_1 = person_data['last_name_1']
@@ -272,6 +310,7 @@ class ParallelWorker:
         
         # Skip to start_index if resuming
         combo_idx = 0
+        queued_count = 0
         for combo in combinations:
             if combo_idx < start_index:
                 combo_idx += 1
@@ -280,12 +319,14 @@ class ParallelWorker:
             day, month, state, year = combo
             combinations_queue.put((combo_idx, day, month, state, year))
             combo_idx += 1
+            queued_count += 1
         
-        logger.info(f"Queued {combinations_queue.qsize()} combinations for parallel processing")
+        logger.info(f"Queued {queued_count} combinations for parallel processing")
         
         # Shared state
         processed_count = {'count': start_index}
         stop_event = threading.Event()
+        self._start_time = time.time()
         
         # Create and start worker threads
         threads = []
@@ -300,8 +341,8 @@ class ParallelWorker:
             )
             thread.start()
             threads.append(thread)
-            # Stagger thread starts slightly to avoid simultaneous requests
-            time.sleep(0.5)
+            # OPTIMIZED: Reduced stagger time
+            time.sleep(0.2)
         
         logger.info(f"Started {self.num_workers} worker threads")
         
@@ -314,9 +355,14 @@ class ParallelWorker:
             # Wait a bit for threads to finish current work
             time.sleep(2)
         
+        # Flush any remaining matches in buffer
+        with self.match_buffer_lock:
+            self._flush_match_buffer(all_results)
+        
         # Wait for all threads to complete
         for thread in threads:
             thread.join(timeout=5)
         
-        logger.info(f"Completed parallel processing for person {person_id}")
-
+        elapsed_time = time.time() - self._start_time
+        logger.info(f"Completed parallel processing for person {person_id} in {elapsed_time:.1f} seconds")
+        logger.info(f"Average rate: {queued_count / max(1, elapsed_time):.2f} searches/second")

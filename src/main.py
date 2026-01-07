@@ -1,10 +1,12 @@
 """
 Main Orchestrator
 Main script that coordinates all components to perform CURP searches.
+OPTIMIZED VERSION - Better logging, progress tracking
 """
 import json
 import sys
 import logging
+import os
 from pathlib import Path
 from typing import List, Dict
 from datetime import datetime
@@ -16,6 +18,9 @@ from result_validator import ResultValidator
 from checkpoint_manager import CheckpointManager
 from parallel_worker import ParallelWorker
 
+
+# Create logs directory if it doesn't exist
+Path('logs').mkdir(exist_ok=True)
 
 # Configure logging
 logging.basicConfig(
@@ -41,6 +46,19 @@ def load_config(config_path: str = "./config/settings.json") -> Dict:
         raise
 
 
+def estimate_time(total_combinations: int, num_workers: int, avg_seconds_per_search: float = 2.0) -> str:
+    """Estimate total time for completion."""
+    total_seconds = (total_combinations / num_workers) * avg_seconds_per_search
+    hours = total_seconds / 3600
+    if hours > 24:
+        days = hours / 24
+        return f"{days:.1f} days"
+    elif hours > 1:
+        return f"{hours:.1f} hours"
+    else:
+        return f"{total_seconds / 60:.1f} minutes"
+
+
 def main():
     """Main execution function."""
     try:
@@ -57,7 +75,17 @@ def main():
         output_dir = config['output_dir']
         checkpoint_dir = config.get('checkpoint_dir', './checkpoints')
         input_dir = config.get('input_dir', './data')
-        num_workers = config.get('num_workers', 5)  # Number of parallel browser instances
+        num_workers = config.get('num_workers', 8)  # Default increased to 8
+        
+        # Log optimization settings
+        logger.info("=" * 60)
+        logger.info("CURP SCRAPING - OPTIMIZED VERSION")
+        logger.info("=" * 60)
+        logger.info(f"Workers: {num_workers}")
+        logger.info(f"Delay: {min_delay}-{max_delay}s")
+        logger.info(f"Pause: every {pause_every_n} searches for {pause_duration}s")
+        logger.info(f"Year range: {year_start}-{year_end}")
+        logger.info("=" * 60)
         
         # Initialize components
         excel_handler = ExcelHandler(input_dir=input_dir, output_dir=output_dir)
@@ -84,10 +112,11 @@ def main():
         if len(sys.argv) > 1:
             input_filename = sys.argv[1]
         else:
-            input_filename = "input.xlsx"
+            input_filename = "input_file.xlsx"
             # Create template if it doesn't exist
             template_path = Path(input_dir) / "input_template.xlsx"
-            if not template_path.exists():
+            input_path = Path(input_dir) / input_filename
+            if not input_path.exists() and not template_path.exists():
                 logger.info("Creating input template...")
                 excel_handler.create_template()
                 logger.info(f"Template created at {template_path}. Please fill it with your data and run again.")
@@ -97,6 +126,16 @@ def main():
         logger.info(f"Reading input file: {input_filename}")
         input_df = excel_handler.read_input(input_filename)
         logger.info(f"Loaded {len(input_df)} person(s) from input file")
+        
+        # Calculate total combinations for estimation
+        combination_generator_temp = CombinationGenerator(year_start, year_end)
+        total_combinations_per_person = combination_generator_temp.get_total_count()
+        total_persons = len(input_df)
+        total_all_combinations = total_combinations_per_person * total_persons
+        
+        estimated_time = estimate_time(total_all_combinations, num_workers)
+        logger.info(f"Total combinations: {total_all_combinations:,} ({total_combinations_per_person:,} per person)")
+        logger.info(f"Estimated completion time: {estimated_time}")
         
         # Prepare results storage
         all_results: List[Dict] = existing_matches.copy()
@@ -148,10 +187,10 @@ def main():
                     start_combination_index = start_combination_index
                     logger.info(f"Resuming from combination index {start_combination_index}")
                 else:
-                    logger.info(f"Processing person {person_id}: {person_name}")
+                    logger.info(f"Processing person {person_id}/{total_persons}: {person_name}")
                     start_combination_index = 0
                 
-                logger.info(f"Total combinations for this person: {total_combinations}")
+                logger.info(f"Total combinations for this person: {total_combinations:,}")
                 
                 # Get person matches count before processing
                 person_matches_before = len([r for r in all_results if r.get('person_id') == person_id])
@@ -197,12 +236,15 @@ def main():
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_filename = f"curp_results_{timestamp}.xlsx"
             
-            logger.info(f"Writing results to Excel: {output_filename}")
+            logger.info(f"Writing final results to Excel: {output_filename}")
             excel_handler.write_results(all_results, summary_data, output_filename)
             
             # Clear checkpoint on successful completion
             checkpoint_manager.clear_checkpoint()
+            logger.info("=" * 60)
             logger.info("Search completed successfully!")
+            logger.info(f"Total matches found: {len(all_results)}")
+            logger.info("=" * 60)
             
         except KeyboardInterrupt:
             logger.info("Process interrupted by user. Checkpoint will be saved by workers.")
@@ -220,4 +262,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
