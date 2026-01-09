@@ -367,7 +367,6 @@ class BrowserAutomation:
                 # Wait for the form to become visible (increased timeout)
                 HumanBehavior.random_sleep(0.5, 1.0)
                 
-                print(f"[Browser] Waiting for form to be visible...")
                 WebDriverWait(self.driver, 45).until(
                     self._is_form_visible
                 )
@@ -377,22 +376,7 @@ class BrowserAutomation:
                 return
                 
             except Exception as e:
-                error_msg = str(e)
-                print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {error_msg}")
-                print(f"[Browser] Current URL: {self.driver.current_url if self.driver else 'N/A'}")
-                
-                # Try to get page source for debugging
-                try:
-                    if self.driver:
-                        # Check if nombre field exists
-                        try:
-                            nombre = self.driver.find_element(By.ID, "nombre")
-                            print(f"[Browser] nombre field found but not visible: displayed={nombre.is_displayed()}")
-                        except:
-                            print(f"[Browser] nombre field NOT FOUND in page")
-                except:
-                    pass
-                
+                print(f"Error navigating to {self.url} (attempt {attempt + 1}/{max_retries}): {e}")
                 self._form_ready = False
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 3
