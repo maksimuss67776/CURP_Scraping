@@ -24,6 +24,9 @@ wheels/
 .installed.cfg
 *.egg
 
+old/
+backup/
+
 # IDE
 .vscode/
 .idea/

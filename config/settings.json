@@ -2,51 +2,35 @@
   "year_range": {
     "start": 1990,
     "end": 2000,
-    "comment": "10-year range for typical searches"
+    "comment": "10-year range for searches"
   },
   "delays": {
-    "min_seconds": 0.3,
-    "max_seconds": 0.6,
-    "comment": "SAFE: Balanced delays to avoid detection"
+    "min_seconds": 1.0,
+    "max_seconds": 2.0,
+    "comment": "OPTIMIZED: Balanced to avoid rate limiting (faster than old 2-5s, safer than new 0.1-0.2s)"
   },
-  "pause_every_n": 500,
-  "pause_duration": 5,
-  "comment_pause": "SAFE: Regular pauses to avoid rate limiting",
+  "pause_every_n": 100,
+  "pause_duration": 10,
+  "comment_pause": "Pause every 100 searches for 10 seconds to avoid detection",
   "browser": {
-    "headless": false,
-    "comment": "Set to true for maximum performance (3-5x faster)"
+    "headless": true,
+    "comment": "Headless mode for VPS (no GUI needed)"
   },
-  "num_processes": 2,
-  "comment_workers": "REDUCED: 2 threads for slow website compatibility",
+  "num_processes": 4,
+  "comment_workers": "4 threads for 4 vCPU VPS",
   "use_multiprocessing": true,
-  "comment_mp": "Enable true multiprocessing to bypass Python GIL",
+  "checkpoint_interval": 1000,
+  "comment_checkpoint": "Save checkpoint every 1000 searches",
+  "batch_size": 100,
+  "comment_batch": "Write results in batches of 100 matches",
+  "batch_timeout": 300,
   "output_dir": "./data/results",
   "input_dir": "./data",
   "checkpoint_dir": "./checkpoints",
-  "checkpoint_interval": 5000,
-  "comment_checkpoint": "Save checkpoint every 5000 searches for safety",
-  "batch_size": 300,
-  "comment_batch": "Write results in batches of 300 matches",
-  "batch_timeout": 300,
-  "comment_timeout": "Or write every 5 minutes",
   "performance_settings": {
     "max_retries": 2,
-    "timeout_seconds": 8,
-    "stagger_delay": 0.5,
-    "page_load_strategy": "eager",
-    "comment": "SAFE: Reasonable retries and timeouts for stability"
-  },
-  "optimization_notes": [
-    "SAFE CONFIGURATION - Balanced speed and reliability:",
-    "- Delays: 0.3-0.6s (safe to avoid detection)",
-    "- Pauses: Every 500 searches for 5s",
-    "- Checkpoints: Every 5000 to protect progress",
-    "- Batch writes: 300 matches at once",
-    "- Max retries: 2 for error recovery",
-    "For 11,000 users with 119,000 combinations each:",
-    "- Total combinations: 1,309,000,000",
-    "- With 10 processes at 2 searches/sec: ~20 searches/sec",
-    "- Estimated time: ~18 days (safe and stable)",
-    "This configuration prioritizes reliability over maximum speed"
-  ]
+    "timeout_seconds": 20,
+    "page_load_timeout": 120,
+    "comment": "Increased timeouts for slow website"
+  }
 }
