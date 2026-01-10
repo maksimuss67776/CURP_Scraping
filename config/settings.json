@@ -1,22 +1,22 @@
 {
   "year_range": {
-    "start": 1990,
-    "end": 2000,
-    "comment": "10-year range for searches"
+    "start": "1977-12",
+    "end": "1977-12",
+    "comment": "Supports both year (1990) and year-month (1990-11) formats. For year-month, all combinations between start and end will be generated (e.g., 1990-11 to 2000-12)"
   },
   "delays": {
-    "min_seconds": 1.0,
-    "max_seconds": 2.0,
-    "comment": "OPTIMIZED: Balanced to avoid rate limiting (faster than old 2-5s, safer than new 0.1-0.2s)"
+    "min_seconds": 0.2,
+    "max_seconds": 0.5,
+    "comment": "FAST MODE: Reduced delays for faster processing"
   },
-  "pause_every_n": 100,
-  "pause_duration": 10,
-  "comment_pause": "Pause every 100 searches for 10 seconds to avoid detection",
+  "pause_every_n": 150,
+  "pause_duration": 8,
+  "comment_pause": "Pause every 150 searches for 8 seconds to avoid detection",
   "browser": {
     "headless": true,
     "comment": "Headless mode for VPS (no GUI needed)"
   },
-  "num_processes": 4,
+  "num_processes": 10,
   "comment_workers": "4 threads for 4 vCPU VPS",
   "use_multiprocessing": true,
   "checkpoint_interval": 1000,

@@ -1,7 +1,6 @@
 """
-Browser Automation - OPTIMIZED VERSION
-Combines OLD reliability + NEW stealth
-Fixes rate limiting and loading issues
+Browser Automation - FIXED VERSION
+Reliable form filling with proper Ember.js event handling.
 """
 import time
 import random
@@ -56,21 +55,11 @@ def get_chromedriver_path():
 
 
 class BrowserAutomation:
-    """Handle browser automation - OPTIMIZED for rate limiting."""
+    """Handle browser automation - RELIABLE version."""
     
-    def __init__(self, headless: bool = False, min_delay: float = 1.0, 
-                 max_delay: float = 2.0, pause_every_n: int = 100, 
+    def __init__(self, headless: bool = False, min_delay: float = 0.3, 
+                 max_delay: float = 0.6, pause_every_n: int = 100, 
                  pause_duration: int = 10):
-        """
-        Initialize browser automation - OPTIMIZED.
-        
-        Args:
-            headless: Run browser in headless mode
-            min_delay: Minimum delay between searches (1.0s recommended)
-            max_delay: Maximum delay between searches (2.0s recommended)
-            pause_every_n: Pause every N searches (100 recommended)
-            pause_duration: Duration of pause (10s recommended)
-        """
         self.headless = headless
         self.min_delay = min_delay
         self.max_delay = max_delay
@@ -87,25 +76,20 @@ class BrowserAutomation:
         user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         ]
         return random.choice(user_agents)
     
     def start_browser(self):
         """Start browser with stealth settings."""
-        # Stagger initialization
-        time.sleep(random.uniform(2.0, 4.0))
+        time.sleep(random.uniform(0.5, 1.5))
         
         if USE_UNDETECTED:
             self._start_undetected_browser()
         else:
             self._start_standard_browser()
         
-        # Set timeouts - INCREASED for slow website
-        self.driver.set_page_load_timeout(120)  # 2 minutes
+        self.driver.set_page_load_timeout(60)
         self.driver.implicitly_wait(0)
-        
-        # Navigate to CURP page
         self._navigate_to_form()
     
     def _start_undetected_browser(self):
@@ -115,13 +99,13 @@ class BrowserAutomation:
         if self.headless:
             options.add_argument('--headless=new')
         
-        # Stealth + VPS optimization
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-gpu')
         options.add_argument('--window-size=1920,1080')
         options.add_argument(f'--user-agent={self._get_random_user_agent()}')
+        options.add_argument('--disable-extensions')
         
         self.driver = uc.Chrome(options=options, use_subprocess=True)
         self._inject_stealth_scripts()
@@ -133,7 +117,6 @@ class BrowserAutomation:
         if self.headless:
             options.add_argument('--headless=new')
         
-        # Stealth + VPS optimization
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument('--disable-extensions')
         options.add_argument('--no-sandbox')
@@ -150,9 +133,7 @@ class BrowserAutomation:
             'profile.password_manager_enabled': False,
         }
         options.add_experimental_option('prefs', prefs)
-        
-        # Page load strategy - wait for full load
-        options.page_load_strategy = 'normal'  # Changed from 'eager' to 'normal'
+        options.page_load_strategy = 'eager'
         
         driver_path = get_chromedriver_path()
         if driver_path:
@@ -184,7 +165,7 @@ class BrowserAutomation:
                 pass
     
     def _navigate_to_form(self):
-        """Navigate to form page - OPTIMIZED with better waiting."""
+        """Navigate to form page."""
         if not self.driver:
             return
             
@@ -192,37 +173,27 @@ class BrowserAutomation:
         for attempt in range(max_retries):
             try:
                 print(f"[Browser] Navigating to {self.url} (attempt {attempt + 1}/{max_retries})...")
-                
-                # Navigate with longer timeout
                 self.driver.get(self.url)
                 print(f"[Browser] Page loaded, waiting for ready state...")
                 
-                # Wait for page to be fully ready - INCREASED timeout
-                WebDriverWait(self.driver, 90).until(
+                WebDriverWait(self.driver, 30).until(
                     lambda d: d.execute_script("return document.readyState") == "complete"
                 )
                 print(f"[Browser] Page ready, waiting for tab link...")
                 
-                # Wait longer before interacting
-                time.sleep(random.uniform(2.0, 4.0))
+                time.sleep(random.uniform(0.5, 1.0))
                 
-                # Wait for the tab link - INCREASED timeout
-                tab_link = WebDriverWait(self.driver, 60).until(
+                tab_link = WebDriverWait(self.driver, 20).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, 'a[href="#tab-02"]'))
                 )
                 print(f"[Browser] Tab link found, clicking...")
                 
-                # Scroll and click
-                self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", tab_link)
-                time.sleep(random.uniform(0.5, 1.0))
-                
                 self.driver.execute_script("arguments[0].click();", tab_link)
                 print(f"[Browser] Tab clicked, waiting for form...")
                 
-                # Wait for form to be visible - INCREASED timeout
-                time.sleep(random.uniform(1.0, 2.0))
+                time.sleep(0.5)
                 
-                WebDriverWait(self.driver, 60).until(
+                WebDriverWait(self.driver, 20).until(
                     lambda d: d.find_element(By.ID, "nombre").is_displayed()
                 )
                 
@@ -234,9 +205,7 @@ class BrowserAutomation:
                 print(f"Error navigating (attempt {attempt + 1}/{max_retries}): {e}")
                 self._form_ready = False
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 5
-                    print(f"Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
+                    time.sleep((attempt + 1) * 2)
                 else:
                     raise
     
@@ -250,13 +219,10 @@ class BrowserAutomation:
             self.driver = None
     
     def _random_delay(self):
-        """Apply random delay - OPTIMIZED to avoid rate limiting."""
+        """Apply random delay."""
         base_delay = random.uniform(self.min_delay, self.max_delay)
-        
-        # Add occasional longer pause (10% chance)
-        if random.random() < 0.10:
-            base_delay += random.uniform(2.0, 5.0)
-        
+        if random.random() < 0.05:
+            base_delay += random.uniform(1.0, 2.0)
         time.sleep(base_delay)
     
     def _close_modal_if_present(self):
@@ -265,42 +231,47 @@ class BrowserAutomation:
             return
         
         try:
-            time.sleep(0.5)
-            close_btns = self.driver.find_elements(By.CSS_SELECTOR, 'button[data-dismiss="modal"], button.btn-default')
-            for btn in close_btns:
-                try:
-                    if btn.is_displayed():
-                        btn.click()
-                        time.sleep(0.5)
-                        break
-                except:
-                    continue
+            self.driver.execute_script("""
+                var btns = document.querySelectorAll('button[data-dismiss="modal"], button.btn-default');
+                for (var i = 0; i < btns.length; i++) {
+                    if (btns[i].offsetParent !== null) {
+                        btns[i].click();
+                        break;
+                    }
+                }
+            """)
         except:
             pass
     
     def _ensure_form_ready(self):
-        """Ensure form is ready - navigate back if needed."""
+        """Ensure form is ready - click tab if needed."""
         if not self._form_ready or not self.driver:
             self._navigate_to_form()
             return
         
         try:
-            # Check if form is still visible
-            nombre_field = self.driver.find_element(By.ID, "nombre")
-            if not nombre_field.is_displayed():
-                # Navigate back to form
-                self._navigate_to_form()
+            nombre_visible = self.driver.execute_script(
+                "var el = document.getElementById('nombre'); return el && el.offsetParent !== null;"
+            )
+            if not nombre_visible:
+                # Click tab to go back to form
+                self.driver.execute_script("""
+                    var tab = document.querySelector('a[href="#tab-02"]');
+                    if (tab) tab.click();
+                """)
+                time.sleep(0.5)
+                # Verify form is visible
+                nombre_visible = self.driver.execute_script(
+                    "var el = document.getElementById('nombre'); return el && el.offsetParent !== null;"
+                )
+                if not nombre_visible:
+                    self._navigate_to_form()
         except:
             self._navigate_to_form()
     
     def search_curp(self, first_name: str, last_name_1: str, last_name_2: str,
                    gender: str, day: int, month: int, state: str, year: int) -> str:
-        """
-        Search for CURP - OPTIMIZED to handle rate limiting.
-        
-        Returns:
-            HTML content of the result page
-        """
+        """Search for CURP using Selenium (reliable method)."""
         if not self.driver:
             raise RuntimeError("Browser not started. Call start_browser() first.")
         
@@ -309,96 +280,71 @@ class BrowserAutomation:
             try:
                 # Ensure form is ready
                 self._ensure_form_ready()
-                
-                # Close any modal
                 self._close_modal_if_present()
                 
-                # Clear form
-                try:
-                    self.driver.find_element(By.ID, "nombre").clear()
-                    self.driver.find_element(By.ID, "primerApellido").clear()
-                    self.driver.find_element(By.ID, "segundoApellido").clear()
-                    self.driver.find_element(By.ID, "selectedYear").clear()
-                    time.sleep(0.3)
-                except:
-                    pass
-                
-                # Fill form fields
+                # Prepare values
                 day_str = str(day).zfill(2)
                 month_str = str(month).zfill(2)
                 year_str = str(year)
                 gender_value = "H" if gender.upper() == "H" else "M"
                 state_code = get_state_code(state)
                 
-                # Fill with small delays
-                self.driver.find_element(By.ID, "nombre").send_keys(first_name)
-                time.sleep(0.2)
-                self.driver.find_element(By.ID, "primerApellido").send_keys(last_name_1)
-                time.sleep(0.2)
-                self.driver.find_element(By.ID, "segundoApellido").send_keys(last_name_2)
-                time.sleep(0.2)
+                # Fill form using Selenium (reliable)
+                nombre = self.driver.find_element(By.ID, "nombre")
+                nombre.clear()
+                nombre.send_keys(first_name)
+                
+                apellido1 = self.driver.find_element(By.ID, "primerApellido")
+                apellido1.clear()
+                apellido1.send_keys(last_name_1)
+                
+                apellido2 = self.driver.find_element(By.ID, "segundoApellido")
+                apellido2.clear()
+                apellido2.send_keys(last_name_2)
                 
                 Select(self.driver.find_element(By.ID, "diaNacimiento")).select_by_value(day_str)
-                time.sleep(0.2)
                 Select(self.driver.find_element(By.ID, "mesNacimiento")).select_by_value(month_str)
-                time.sleep(0.2)
-                self.driver.find_element(By.ID, "selectedYear").send_keys(year_str)
-                time.sleep(0.2)
+                
+                anio = self.driver.find_element(By.ID, "selectedYear")
+                anio.clear()
+                anio.send_keys(year_str)
+                
                 Select(self.driver.find_element(By.ID, "sexo")).select_by_value(gender_value)
-                time.sleep(0.2)
                 Select(self.driver.find_element(By.ID, "claveEntidad")).select_by_value(state_code)
-                time.sleep(0.5)
                 
-                # Submit form
-                try:
-                    submit_btn = self.driver.find_element(By.ID, "searchButton")
-                    submit_btn.click()
-                except:
-                    self.driver.execute_script("document.getElementById('searchButton').click();")
+                # Small delay for form validation
+                time.sleep(0.3)
                 
-                # CRITICAL FIX: Wait for loading spinner to disappear
-                # This is what was causing the issue in the image
-                try:
-                    # Wait for spinner to appear first (if it does)
-                    time.sleep(1.0)
-                    
-                    # Then wait for it to disappear - INCREASED timeout to 30s
-                    WebDriverWait(self.driver, 30).until_not(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, '.spinner, .loading, [class*="spin"], [class*="load"]'))
-                    )
-                except:
-                    # If no spinner found, just wait a bit
-                    time.sleep(2.0)
+                # Click search button
+                search_btn = self.driver.find_element(By.ID, "searchButton")
+                search_btn.click()
                 
-                # Wait for response - INCREASED timeout
+                # Wait for result or error
                 try:
-                    WebDriverWait(self.driver, 20).until(
+                    WebDriverWait(self.driver, 15).until(
                         lambda d: d.execute_script("""
-                            return document.querySelector('button[data-dismiss="modal"]') !== null ||
-                                   document.getElementById('dwnldLnk') !== null ||
-                                   document.querySelector('table.table') !== null;
+                            if (document.getElementById('dwnldLnk') !== null) return true;
+                            var tables = document.querySelectorAll('table');
+                            for (var i = 0; i < tables.length; i++) {
+                                if (tables[i].innerHTML.indexOf('CURP:') > -1) return true;
+                            }
+                            if (document.body.innerHTML.indexOf('los datos ingresados no son correctos') > -1) return true;
+                            var modal = document.querySelector('.modal.in, .modal.show');
+                            if (modal && modal.querySelector('.modal-body')) return true;
+                            return false;
                         """)
                     )
                 except TimeoutException:
-                    # Timeout is okay, check content anyway
                     pass
                 
-                # Wait a bit more for content to stabilize
-                time.sleep(1.0)
-                
-                # Close modal if present
+                time.sleep(0.3)
                 self._close_modal_if_present()
                 
-                # Get page content
                 content = self.driver.page_source
-                
-                # Increment search count
                 self.search_count += 1
                 
-                # Apply delay
                 self._random_delay()
                 
-                # Periodic pause
                 if self.search_count % self.pause_every_n == 0:
                     pause_time = self.pause_duration + random.uniform(-2, 3)
                     print(f"Pausing for {pause_time:.0f} seconds after {self.search_count} searches...")
@@ -410,17 +356,15 @@ class BrowserAutomation:
                 if attempt < max_retries - 1:
                     print(f"Error during search (attempt {attempt + 1}/{max_retries}): {e}")
                     self._form_ready = False
-                    time.sleep(3)
+                    time.sleep(1)
                 else:
                     print(f"Error during search (final attempt): {e}")
                     self._form_ready = False
                     return ""
     
     def __enter__(self):
-        """Context manager entry."""
         self.start_browser()
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
         self.close_browser()

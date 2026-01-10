@@ -46,25 +46,99 @@ MEXICAN_STATES = [
 class CombinationGenerator:
     """Generate combinations for CURP search."""
     
-    def __init__(self, start_year: int, end_year: int):
+    def __init__(self, start_year, end_year):
         """
         Initialize combination generator.
         
         Args:
-            start_year: Starting year for birth year range
-            end_year: Ending year for birth year range (inclusive)
+            start_year: Starting year/year-month (e.g., 1990 or "1990-11")
+            end_year: Ending year/year-month (e.g., 2000 or "2000-12") (inclusive)
         """
-        self.start_year = start_year
-        self.end_year = end_year
+        # Parse start and end dates
+        self.start_year, self.start_month = self._parse_year_month(start_year)
+        self.end_year, self.end_month = self._parse_year_month(end_year)
         self.states = MEXICAN_STATES
+        
+        # Generate year-month pairs
+        self.year_month_pairs = self._generate_year_month_pairs()
         
         # Calculate total combinations
         days = 31
-        months = 12
         states_count = len(self.states)
-        years_count = end_year - start_year + 1
+        year_month_count = len(self.year_month_pairs)
         
-        self.total_combinations = days * months * states_count * years_count
+        self.total_combinations = days * states_count * year_month_count
+    
+    def _parse_year_month(self, value):
+        """
+        Parse year or year-month string.
+        
+        Args:
+            value: Either int/string year (1990) or year-month string ("1990-11")
+            
+        Returns:
+            Tuple of (year, month). Month is None if not specified.
+        """
+        value_str = str(value)
+        if '-' in value_str:
+            parts = value_str.split('-')
+            return int(parts[0]), int(parts[1])
+        else:
+            return int(value_str), None
+    
+    def _generate_year_month_pairs(self):
+        """
+        Generate list of (year, month) tuples based on start and end.
+        
+        Returns:
+            List of (year, month) tuples
+        """
+        pairs = []
+        
+        # If both have specific months
+        if self.start_month is not None and self.end_month is not None:
+            # Generate all months from start to end
+            for year in range(self.start_year, self.end_year + 1):
+                if year == self.start_year:
+                    # First year: from start_month to 12
+                    months = range(self.start_month, 13)
+                elif year == self.end_year:
+                    # Last year: from 1 to end_month
+                    months = range(1, self.end_month + 1)
+                else:
+                    # Middle years: all 12 months
+                    months = range(1, 13)
+                
+                for month in months:
+                    pairs.append((year, month))
+        
+        # If only start has month
+        elif self.start_month is not None:
+            for year in range(self.start_year, self.end_year + 1):
+                if year == self.start_year:
+                    months = range(self.start_month, 13)
+                else:
+                    months = range(1, 13)
+                for month in months:
+                    pairs.append((year, month))
+        
+        # If only end has month
+        elif self.end_month is not None:
+            for year in range(self.start_year, self.end_year + 1):
+                if year == self.end_year:
+                    months = range(1, self.end_month + 1)
+                else:
+                    months = range(1, 13)
+                for month in months:
+                    pairs.append((year, month))
+        
+        # Neither has month - use all months for all years
+        else:
+            for year in range(self.start_year, self.end_year + 1):
+                for month in range(1, 13):
+                    pairs.append((year, month))
+        
+        return pairs
     
     def generate_combinations(self) -> Iterator[Tuple[int, int, str, int]]:
         """
@@ -74,11 +148,9 @@ class CombinationGenerator:
             Tuple of (day, month, state_name, year)
         """
         days = range(1, 32)  # 1-31
-        months = range(1, 13)  # 1-12
-        years = range(self.start_year, self.end_year + 1)
         
         # Use itertools.product for efficient combination generation
-        for day, month, state, year in product(days, months, self.states, years):
+        for day, state, (year, month) in product(days, self.states, self.year_month_pairs):
             yield (day, month, state, year)
     
     def get_total_count(self) -> int:
@@ -99,24 +171,19 @@ class CombinationGenerator:
             return None
         
         days = list(range(1, 32))
-        months = list(range(1, 13))
-        years = list(range(self.start_year, self.end_year + 1))
-        
         states_count = len(self.states)
-        years_count = len(years)
-        months_count = 12
+        year_month_count = len(self.year_month_pairs)
         
         # Calculate indices
-        day_idx = index // (months_count * states_count * years_count)
-        remaining = index % (months_count * states_count * years_count)
+        day_idx = index // (states_count * year_month_count)
+        remaining = index % (states_count * year_month_count)
         
-        month_idx = remaining // (states_count * years_count)
-        remaining = remaining % (states_count * years_count)
+        state_idx = remaining // year_month_count
+        year_month_idx = remaining % year_month_count
         
-        state_idx = remaining // years_count
-        year_idx = remaining % years_count
+        year, month = self.year_month_pairs[year_month_idx]
         
-        return (days[day_idx], months[month_idx], self.states[state_idx], years[year_idx])
+        return (days[day_idx], month, self.states[state_idx], year)
     
     def get_index_of_combination(self, day: int, month: int, state: str, year: int) -> Optional[int]:
         """
@@ -137,26 +204,23 @@ class CombinationGenerator:
             return None
         if state not in self.states:
             return None
-        if year < self.start_year or year > self.end_year:
+        
+        # Check if year-month pair exists in our list
+        try:
+            year_month_idx = self.year_month_pairs.index((year, month))
+        except ValueError:
             return None
         
         days = list(range(1, 32))
-        months = list(range(1, 13))
-        years = list(range(self.start_year, self.end_year + 1))
-        
         states_count = len(self.states)
-        years_count = len(years)
-        months_count = 12
+        year_month_count = len(self.year_month_pairs)
         
         day_idx = days.index(day)
-        month_idx = months.index(month)
         state_idx = self.states.index(state)
-        year_idx = years.index(year)
         
-        index = (day_idx * months_count * states_count * years_count +
-                month_idx * states_count * years_count +
-                state_idx * years_count +
-                year_idx)
+        index = (day_idx * states_count * year_month_count +
+                state_idx * year_month_count +
+                year_month_idx)
         
         return index
 
