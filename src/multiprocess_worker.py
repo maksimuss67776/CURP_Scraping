@@ -259,10 +259,9 @@ class HighPerformanceWorker:
                         with self.count_lock:
                             self.match_count += 1
                         
-                        # EARLY STOP: Signal all workers to stop
-                        match_found_event.set()
-                        logger.info(f"Worker {worker_id}: CURP FOUND! {result['curp']} "
-                                   f"({day:02d}/{month:02d}/{year}, {state}) - Stopping all workers")
+                        # LOG MATCH - Continue searching for more matches (don't stop!)
+                        logger.info(f"Worker {worker_id}: MATCH #{self.match_count}! CURP={result['curp']} "
+                                   f"({day:02d}/{month:02d}/{year}, {state}) - Continuing search...")
                     
                     # Progress report every 10 seconds
                     if time.time() - last_log_time > 10:
@@ -438,22 +437,24 @@ class HighPerformanceWorker:
                 filename = self.output_files[person_id]
                 person_matches = [r for r in all_results if r.get('person_id') == person_id]
                 
-                if matches:
-                    first_match = matches[0]
+                # Create summary with ALL CURPs found
+                if person_matches:
+                    first_match = person_matches[0]
+                    all_curps = list(set(m['curp'] for m in person_matches))  # Unique CURPs
                     summary = [{
                         'person_id': person_id,
                         'first_name': first_match['first_name'],
                         'last_name_1': first_match['last_name_1'],
                         'last_name_2': first_match.get('last_name_2', ''),
-                        'curp': first_match['curp'],
-                        'birth_date': first_match['birth_date'],
-                        'total_matches': len(person_matches)
+                        'total_matches': len(person_matches),
+                        'unique_curps': len(all_curps),
+                        'all_curps': ', '.join(all_curps)  # List all CURPs found
                     }]
                 else:
                     summary = []
                 
                 self.excel_handler.write_results(person_matches, summary, filename)
-                logger.info(f"Saved {len(person_matches)} matches -> {filename}")
+                logger.info(f"Saved {len(person_matches)} matches ({len(set(m['curp'] for m in person_matches))} unique CURPs) -> {filename}")
         
         except Exception as e:
             logger.error(f"Write error: {e}")
