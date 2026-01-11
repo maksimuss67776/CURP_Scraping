@@ -1,11 +1,11 @@
 """
-Browser Automation - FIXED VERSION
-Reliable form filling with proper Ember.js event handling.
+Browser Automation - ROBUST VERSION with Rate Limit Detection
 """
 import time
 import random
 import threading
-from typing import Optional, Dict
+import logging
+from typing import Optional, Dict, Tuple
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -13,7 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import Select
-from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.common.exceptions import TimeoutException, WebDriverException, StaleElementReferenceException
 from state_codes import get_state_code
 
 # Try undetected-chromedriver for stealth
@@ -33,6 +33,9 @@ except ImportError:
 # Global cached chromedriver path
 _chromedriver_path = None
 _chromedriver_lock = threading.Lock()
+
+# Logger
+logger = logging.getLogger(__name__)
 
 
 def get_chromedriver_path():
@@ -54,43 +57,78 @@ def get_chromedriver_path():
         return _chromedriver_path
 
 
+class SearchResult:
+    """Result of a CURP search."""
+    SUCCESS = "success"
+    NOT_FOUND = "not_found"
+    RATE_LIMITED = "rate_limited"
+    ERROR = "error"
+    BROWSER_CRASHED = "browser_crashed"
+
+
 class BrowserAutomation:
-    """Handle browser automation - RELIABLE version."""
+    """Handle browser automation - ROBUST version with rate limit detection."""
     
     def __init__(self, headless: bool = False, min_delay: float = 0.3, 
                  max_delay: float = 0.6, pause_every_n: int = 100, 
-                 pause_duration: int = 10):
+                 pause_duration: int = 10, worker_id: int = 0):
         self.headless = headless
         self.min_delay = min_delay
         self.max_delay = max_delay
         self.pause_every_n = pause_every_n
         self.pause_duration = pause_duration
+        self.worker_id = worker_id
         
         self.driver: Optional[webdriver.Chrome] = None
         self.search_count = 0
         self.url = "https://www.gob.mx/curp/"
         self._form_ready = False
+        self.consecutive_errors = 0
+        self.rate_limit_count = 0
+    
+    def _log(self, msg: str):
+        """Log message with worker ID."""
+        logger.info(f"[Worker-{self.worker_id}] {msg}")
     
     def _get_random_user_agent(self) -> str:
         """Get a random realistic user agent."""
         user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         ]
         return random.choice(user_agents)
     
-    def start_browser(self):
-        """Start browser with stealth settings."""
-        time.sleep(random.uniform(0.5, 1.5))
-        
-        if USE_UNDETECTED:
-            self._start_undetected_browser()
-        else:
-            self._start_standard_browser()
-        
-        self.driver.set_page_load_timeout(60)
-        self.driver.implicitly_wait(0)
-        self._navigate_to_form()
+    def is_browser_alive(self) -> bool:
+        """Check if browser is still responsive."""
+        if not self.driver:
+            return False
+        try:
+            _ = self.driver.current_url
+            return True
+        except:
+            return False
+    
+    def start_browser(self) -> bool:
+        """Start browser with stealth settings. Returns True if successful."""
+        try:
+            # Stagger initialization
+            time.sleep(random.uniform(0.5, 2.0))
+            
+            if USE_UNDETECTED:
+                self._start_undetected_browser()
+            else:
+                self._start_standard_browser()
+            
+            self.driver.set_page_load_timeout(60)
+            self.driver.implicitly_wait(0)
+            
+            # Navigate to CURP page
+            self._navigate_to_form()
+            return True
+        except Exception as e:
+            self._log(f"Failed to start browser: {e}")
+            return False
     
     def _start_undetected_browser(self):
         """Start browser using undetected-chromedriver."""
@@ -217,6 +255,14 @@ class BrowserAutomation:
             except:
                 pass
             self.driver = None
+            self._form_ready = False
+    
+    def restart_browser(self) -> bool:
+        """Restart the browser. Returns True if successful."""
+        self._log("Restarting browser...")
+        self.close_browser()
+        time.sleep(2)
+        return self.start_browser()
     
     def _random_delay(self):
         """Apply random delay."""
@@ -254,13 +300,11 @@ class BrowserAutomation:
                 "var el = document.getElementById('nombre'); return el && el.offsetParent !== null;"
             )
             if not nombre_visible:
-                # Click tab to go back to form
                 self.driver.execute_script("""
                     var tab = document.querySelector('a[href="#tab-02"]');
                     if (tab) tab.click();
                 """)
                 time.sleep(0.5)
-                # Verify form is visible
                 nombre_visible = self.driver.execute_script(
                     "var el = document.getElementById('nombre'); return el && el.offsetParent !== null;"
                 )
@@ -269,13 +313,48 @@ class BrowserAutomation:
         except:
             self._navigate_to_form()
     
-    def search_curp(self, first_name: str, last_name_1: str, last_name_2: str,
-                   gender: str, day: int, month: int, state: str, year: int) -> str:
-        """Search for CURP using Selenium (reliable method)."""
-        if not self.driver:
-            raise RuntimeError("Browser not started. Call start_browser() first.")
+    def _detect_rate_limit(self, html_content: str) -> bool:
+        """Detect if we're being rate limited."""
+        rate_limit_indicators = [
+            'rate limit',
+            'too many requests',
+            'intente más tarde',
+            'servicio no disponible',
+            'service unavailable',
+            '429',
+            'blocked',
+            'access denied',
+        ]
         
-        max_retries = 2
+        html_lower = html_content.lower()
+        for indicator in rate_limit_indicators:
+            if indicator in html_lower:
+                self._log(f"RATE LIMIT DETECTED: Found '{indicator}' in response")
+                return True
+        
+        # Also check if response is suspiciously short
+        if len(html_content) < 1000:
+            self._log(f"WARNING: Very short response ({len(html_content)} bytes) - possible rate limit")
+            return True
+        
+        return False
+    
+    def search_curp(self, first_name: str, last_name_1: str, last_name_2: str,
+                   gender: str, day: int, month: int, state: str, year: int) -> Tuple[str, str]:
+        """
+        Search for CURP with robust error handling.
+        
+        Returns:
+            Tuple of (status, html_content) where status is one of:
+            - SearchResult.SUCCESS: Search completed, check html for result
+            - SearchResult.RATE_LIMITED: Rate limited, should wait before retry
+            - SearchResult.BROWSER_CRASHED: Browser crashed, needs restart
+            - SearchResult.ERROR: Other error
+        """
+        if not self.driver or not self.is_browser_alive():
+            return (SearchResult.BROWSER_CRASHED, "")
+        
+        max_retries = 3
         for attempt in range(max_retries):
             try:
                 # Ensure form is ready
@@ -289,7 +368,7 @@ class BrowserAutomation:
                 gender_value = "H" if gender.upper() == "H" else "M"
                 state_code = get_state_code(state)
                 
-                # Fill form using Selenium (reliable)
+                # Fill form using Selenium
                 nombre = self.driver.find_element(By.ID, "nombre")
                 nombre.clear()
                 nombre.send_keys(first_name)
@@ -343,24 +422,50 @@ class BrowserAutomation:
                 content = self.driver.page_source
                 self.search_count += 1
                 
+                # Check for rate limiting
+                if self._detect_rate_limit(content):
+                    self.rate_limit_count += 1
+                    self._log(f"Rate limit #{self.rate_limit_count} - waiting 30 seconds...")
+                    time.sleep(30)
+                    if self.rate_limit_count >= 3:
+                        self._log("Too many rate limits - waiting 2 minutes...")
+                        time.sleep(120)
+                        self.rate_limit_count = 0
+                    return (SearchResult.RATE_LIMITED, content)
+                
+                # Reset error counters on success
+                self.consecutive_errors = 0
+                
+                # Apply delay
                 self._random_delay()
                 
+                # Periodic pause
                 if self.search_count % self.pause_every_n == 0:
                     pause_time = self.pause_duration + random.uniform(-2, 3)
-                    print(f"Pausing for {pause_time:.0f} seconds after {self.search_count} searches...")
+                    self._log(f"Pausing for {pause_time:.0f} seconds after {self.search_count} searches...")
                     time.sleep(pause_time)
                 
-                return content
+                return (SearchResult.SUCCESS, content)
+                
+            except (WebDriverException, StaleElementReferenceException) as e:
+                self.consecutive_errors += 1
+                self._log(f"Browser error (attempt {attempt + 1}/{max_retries}): {e}")
+                
+                if self.consecutive_errors >= 5 or not self.is_browser_alive():
+                    return (SearchResult.BROWSER_CRASHED, "")
+                
+                self._form_ready = False
+                time.sleep(2)
                 
             except Exception as e:
+                self.consecutive_errors += 1
+                self._log(f"Error during search (attempt {attempt + 1}/{max_retries}): {e}")
+                
                 if attempt < max_retries - 1:
-                    print(f"Error during search (attempt {attempt + 1}/{max_retries}): {e}")
                     self._form_ready = False
-                    time.sleep(1)
-                else:
-                    print(f"Error during search (final attempt): {e}")
-                    self._form_ready = False
-                    return ""
+                    time.sleep(2)
+        
+        return (SearchResult.ERROR, "")
     
     def __enter__(self):
         self.start_browser()

@@ -5,8 +5,8 @@
     "comment": "Supports both year (1990) and year-month (1990-11) formats. For year-month, all combinations between start and end will be generated (e.g., 1990-11 to 2000-12)"
   },
   "delays": {
-    "min_seconds": 0.2,
-    "max_seconds": 0.5,
+    "min_seconds": 0.7,
+    "max_seconds": 1.5,
     "comment": "FAST MODE: Reduced delays for faster processing"
   },
   "pause_every_n": 150,
@@ -16,8 +16,8 @@
     "headless": true,
     "comment": "Headless mode for VPS (no GUI needed)"
   },
-  "num_processes": 10,
-  "comment_workers": "4 threads for 4 vCPU VPS",
+  "num_processes": 4,
+  "comment_workers": "4 workers recommended - too many workers (10+) causes rate limiting and missed results",
   "use_multiprocessing": true,
   "checkpoint_interval": 1000,
   "comment_checkpoint": "Save checkpoint every 1000 searches",
